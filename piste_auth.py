@@ -20,8 +20,6 @@ import os
 import time
 import httpx
 
-# URL du endpoint de token. À adapter si vos identifiants sont en sandbox
-# (généralement quelque chose comme https://sandbox-oauth.piste.gouv.fr/api/oauth/token).
 TOKEN_URL = os.environ.get(
     "PISTE_TOKEN_URL",
     "https://oauth.piste.gouv.fr/api/oauth/token",
@@ -33,8 +31,6 @@ class PisteAuthError(Exception):
     pass
 
 
-# Cache mémoire simple (process-local). Suffisant pour un service à une
-# seule instance comme le plan gratuit de Render.
 _token_cache: dict = {"access_token": None, "expires_at": 0.0}
 
 
@@ -53,10 +49,10 @@ async def get_access_token() -> str:
             "'Environment Variables' de votre service Render."
         )
 
+    # PISTE attend l'authentification du client via HTTP Basic Auth (standard
+    # OAuth2), pas via client_id/client_secret dans le corps de la requête.
     data = {
         "grant_type": "client_credentials",
-        "client_id": client_id,
-        "client_secret": client_secret,
         "scope": "openid",
     }
 
@@ -66,6 +62,7 @@ async def get_access_token() -> str:
                 TOKEN_URL,
                 data=data,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
+                auth=(client_id, client_secret),
             )
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
