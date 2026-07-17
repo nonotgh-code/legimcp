@@ -174,6 +174,63 @@ def format_judilibre_search_results(response: dict) -> str:
     return "\n".join(lines)
 
 
+# ─────────────────────────── EUR-Lex / CJUE ───────────────────────────
+
+def format_eurlex_results(response: dict, source_label: str) -> str:
+    bindings = _safe_get(response, "results", default={}).get("bindings", [])
+    if not bindings:
+        return (
+            f"Aucun résultat {source_label} trouvé (ou structure de réponse inattendue).\n\n"
+            "Réponse brute (pour diagnostic) :\n" + json.dumps(response, ensure_ascii=False, indent=2)[:1500]
+        )
+
+    lines = [f"Résultats {source_label} — {len(bindings)} document(s)\n{'=' * 60}"]
+    for b in bindings:
+        celex = _safe_get(b, "celex", default={}).get("value", "")
+        title = _safe_get(b, "title", default={}).get("value", "")
+        date = _safe_get(b, "date", default={}).get("value", "")
+        lines.append(f"\n- {title}")
+        if celex:
+            lines.append(f"  CELEX : {celex}")
+            lines.append(f"  Lien officiel : https://eur-lex.europa.eu/legal-content/FR/TXT/?uri=CELEX:{celex}")
+        if date:
+            lines.append(f"  Date : {date}")
+    return "\n".join(lines)
+
+
+# ─────────────────────────── HUDOC (CEDH) ───────────────────────────
+
+def format_hudoc_results(response: dict) -> str:
+    results = _safe_get(response, "results", default=[])
+    total = _safe_get(response, "resultcount", default=len(results))
+
+    if not results:
+        return (
+            "Aucune décision CEDH trouvée (ou structure de réponse inattendue).\n\n"
+            "Réponse brute (pour diagnostic) :\n" + json.dumps(response, ensure_ascii=False, indent=2)[:1500]
+        )
+
+    lines = [f"Décisions CEDH (HUDOC) — {total} résultat(s) au total\n{'=' * 60}"]
+    for r in results:
+        cols = r.get("columns", r)
+        itemid = _safe_get(cols, "itemid", default="")
+        docname = _safe_get(cols, "docname", default="Sans titre")
+        appno = _safe_get(cols, "appno", default="")
+        respondent = _safe_get(cols, "respondent", default="")
+        date = _safe_get(cols, "decisiondate", "kpdate", default="")
+
+        lines.append(f"\n- {docname}")
+        if appno:
+            lines.append(f"  N° de requête : {appno}")
+        if respondent:
+            lines.append(f"  État défendeur : {respondent}")
+        if date:
+            lines.append(f"  Date : {date}")
+        if itemid:
+            lines.append(f"  Lien officiel : https://hudoc.echr.coe.int/eng?i={itemid}")
+    return "\n".join(lines)
+
+
 def format_judilibre_decision(response: dict) -> str:
     decision_id = _safe_get(response, "id", default="")
     texte = _safe_get(response, "text", "texteIntegral", default="")

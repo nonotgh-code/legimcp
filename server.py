@@ -25,6 +25,8 @@ load_dotenv()  # charge un fichier .env local si présent ; ignoré si absent
 import legifrance_client as legifrance
 import judilibre_client as judilibre
 import bofip_client as bofip
+import eurlex_client as eurlex
+import hudoc_client as hudoc
 import formatters as fmt
 
 mcp = FastMCP(
@@ -250,6 +252,119 @@ async def explorer_bofip(serie: Optional[str] = None) -> str:
             lines.append(f"\n{r.get('identifiant_juridique', '?')} — {r.get('titre', '')}")
         return "\n".join(lines)
     except bofip.BofipAPIError as e:
+        return f"Erreur : {e}"
+
+
+# ═══════════════════════════ EUR-LEX (LÉGISLATION UE) ═══════════════════════════
+
+@mcp.tool()
+async def rechercher_legislation_ue(query: str, page_size: int = 10) -> str:
+    """
+    Recherche des actes législatifs de l'Union européenne (règlements,
+    directives, décisions) par mot-clé du TITRE.
+
+    Args:
+        query: mot ou expression recherché dans le titre (ex: "protection
+            des données", "marché intérieur", "consommateurs").
+        page_size: nombre de résultats (défaut 10, max 50).
+
+    Note importante : cette recherche porte sur le TITRE des textes, pas
+    sur leur contenu intégral (le point d'accès public utilisé ne permet
+    pas la recherche plein texte). Pour un texte dont vous connaissez déjà
+    le numéro CELEX, utilisez get_texte_ue() directement.
+
+    Exemple:
+        - rechercher_legislation_ue("protection des données")
+    """
+    page_size = max(1, min(page_size, 50))
+    try:
+        response = await eurlex.search_legislation_by_title(query, limit=page_size)
+        return fmt.format_eurlex_results(response, "EUR-Lex (législation UE)")
+    except eurlex.EurlexAPIError as e:
+        return f"Erreur : {e}"
+
+
+@mcp.tool()
+async def get_texte_ue(celex: str) -> str:
+    """
+    Récupère le titre, la date et le lien officiel d'un texte UE via son
+    numéro CELEX.
+
+    Args:
+        celex: numéro CELEX du texte (ex: "32016R0679" pour le RGPD).
+
+    Exemple:
+        - get_texte_ue("32016R0679")
+    """
+    try:
+        response = await eurlex.get_by_celex(celex)
+        return fmt.format_eurlex_results(response, f"EUR-Lex — {celex}")
+    except eurlex.EurlexAPIError as e:
+        return f"Erreur : {e}"
+
+
+# ═══════════════════════════ CJUE (JURISPRUDENCE UE) ═══════════════════════════
+
+@mcp.tool()
+async def rechercher_jurisprudence_cjue(query: str, page_size: int = 10) -> str:
+    """
+    Recherche des arrêts de la Cour de justice de l'Union européenne (CJUE)
+    par mot-clé du TITRE (souvent les noms des parties au litige).
+
+    Args:
+        query: mot-clé ou nom de partie (ex: "Google Spain", "Schrems").
+        page_size: nombre de résultats (défaut 10, max 50).
+
+    Note : comme pour rechercher_legislation_ue(), cette recherche porte
+    sur le titre, pas sur le texte intégral de l'arrêt.
+
+    Exemple:
+        - rechercher_jurisprudence_cjue("Schrems")
+    """
+    page_size = max(1, min(page_size, 50))
+    try:
+        response = await eurlex.search_case_law_by_title(query, limit=page_size)
+        return fmt.format_eurlex_results(response, "CJUE (jurisprudence)")
+    except eurlex.EurlexAPIError as e:
+        return f"Erreur : {e}"
+
+
+@mcp.tool()
+async def get_arret_cjue(celex: str) -> str:
+    """
+    Récupère le titre, la date et le lien officiel d'un arrêt CJUE via son
+    numéro CELEX (les numéros d'arrêts CJUE commencent typiquement par "6").
+
+    Args:
+        celex: numéro CELEX de l'arrêt (ex: "62019CJ0311").
+    """
+    try:
+        response = await eurlex.get_by_celex(celex)
+        return fmt.format_eurlex_results(response, f"CJUE — {celex}")
+    except eurlex.EurlexAPIError as e:
+        return f"Erreur : {e}"
+
+
+# ═══════════════════════════ CEDH (HUDOC) ═══════════════════════════
+
+@mcp.tool()
+async def rechercher_cedh(query: str, page_size: int = 10) -> str:
+    """
+    Recherche plein texte dans les arrêts et décisions de la Cour
+    européenne des droits de l'homme (CEDH) via HUDOC.
+
+    Args:
+        query: termes de recherche.
+        page_size: nombre de résultats (défaut 10, max 50).
+
+    Exemple:
+        - rechercher_cedh("droit au respect de la vie privée")
+    """
+    page_size = max(1, min(page_size, 50))
+    try:
+        response = await hudoc.search_decisions(query, start=0, length=page_size)
+        return fmt.format_hudoc_results(response)
+    except hudoc.HudocAPIError as e:
         return f"Erreur : {e}"
 
 
