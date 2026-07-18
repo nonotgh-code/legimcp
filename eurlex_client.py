@@ -28,7 +28,7 @@ de modifier ce fichier à l'aveugle.
 import httpx
 from typing import Optional
 
-SPARQL_ENDPOINT = "http://publications.europa.eu/webapi/rdf/sparql"
+SPARQL_ENDPOINT = "https://publications.europa.eu/webapi/rdf/sparql"
 
 # Codes de langue Cellar (pas des codes ISO classiques)
 LANG_URIS = {
@@ -44,7 +44,7 @@ class EurlexAPIError(Exception):
 
 async def _sparql_query(query: str) -> dict:
     headers = {"Accept": "application/sparql-results+json"}
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
             resp = await client.get(SPARQL_ENDPOINT, params={"query": query}, headers=headers)
             resp.raise_for_status()
@@ -54,7 +54,8 @@ async def _sparql_query(query: str) -> dict:
                 f"Erreur SPARQL Cellar ({e.response.status_code}) : {e.response.text[:400]}"
             )
         except httpx.RequestError as e:
-            raise EurlexAPIError(f"Erreur réseau Cellar : {e}")
+            detail = str(e) or type(e).__name__
+            raise EurlexAPIError(f"Erreur réseau Cellar : {detail}")
 
 
 def _build_title_search_query(keyword: str, celex_prefix: str, limit: int, lang: str) -> str:

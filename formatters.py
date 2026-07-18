@@ -104,11 +104,15 @@ def format_legifrance_search_results(response: dict, tool_name: str) -> str:
         )
 
     lines = [f"Résultats Légifrance — {total} document(s) au total\n{'=' * 60}"]
+    missing_title_count = 0
     for r in results:
-        titre = _safe_get(r, "titre", "title", default="Sans titre")
+        titre = _safe_get(r, "titre", "title", "titreLong", "nomFichier", "texteHtml", default=None)
         nature = _safe_get(r, "nature", default="")
-        text_id = _safe_get(r, "id", "textId", "titleId", default="")
-        date = _safe_get(r, "dateDebut", "dateVersion", default="")
+        text_id = _safe_get(r, "id", "textId", "titleId", "cid", default="")
+        date = _safe_get(r, "dateDebut", "dateVersion", "date", default="")
+        if titre is None:
+            missing_title_count += 1
+            titre = "Sans titre"
         lines.append(f"\n- {titre}")
         if nature:
             lines.append(f"  Nature : {nature}")
@@ -116,6 +120,13 @@ def format_legifrance_search_results(response: dict, tool_name: str) -> str:
             lines.append(f"  Identifiant : {text_id}")
         if date:
             lines.append(f"  Date : {date}")
+
+    if missing_title_count == len(results):
+        lines.append(
+            "\n\n[Diagnostic] Aucun titre n'a pu être extrait — structure JSON du "
+            "premier résultat, pour ajuster formatters.py :\n"
+            + json.dumps(results[0], ensure_ascii=False, indent=2)[:1500]
+        )
     lines.append(f"\n\nPour lire un texte : utilisez son identifiant avec l'outil de consultation adapté.")
     return "\n".join(lines)
 
