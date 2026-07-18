@@ -106,10 +106,24 @@ def format_legifrance_search_results(response: dict, tool_name: str) -> str:
     lines = [f"Résultats Légifrance — {total} document(s) au total\n{'=' * 60}"]
     missing_title_count = 0
     for r in results:
-        titre = _safe_get(r, "titre", "title", "titreLong", "nomFichier", "texteHtml", default=None)
+        # Certains fonds (ex: CNIL) nichent le titre dans un tableau "titles",
+        # avec des balises <mark> de surlignage à retirer.
+        titre = None
+        text_id = ""
+        titles_array = _safe_get(r, "titles", default=None)
+        if titles_array and isinstance(titles_array, list) and titles_array:
+            titre = _safe_get(titles_array[0], "title", default=None)
+            text_id = _safe_get(titles_array[0], "id", "cid", default="")
+        if titre is None:
+            titre = _safe_get(r, "titre", "title", "titreLong", "nomFichier", "texteHtml", default=None)
+        if titre:
+            titre = titre.replace("<mark>", "").replace("</mark>", "").strip()
+
         nature = _safe_get(r, "nature", default="")
-        text_id = _safe_get(r, "id", "textId", "titleId", "cid", default="")
-        date = _safe_get(r, "dateDebut", "dateVersion", "date", default="")
+        if not text_id:
+            text_id = _safe_get(r, "id", "textId", "titleId", "cid", default="")
+        date = _safe_get(r, "dateDebut", "dateVersion", "date", "datePublication", default="")
+
         if titre is None:
             missing_title_count += 1
             titre = "Sans titre"
