@@ -120,9 +120,17 @@ async def consult_code_article(
         code_name: nom exact du code tel que référencé par Légifrance
             (ex: "Code civil", "Code général des impôts", "Code du travail").
         article_number: numéro de l'article (ex: "1240", "L. 1234-1").
-        date: date de vigueur souhaitée (YYYY-MM-DD), sinon version en vigueur.
+        date: date de vigueur souhaitée (YYYY-MM-DD), sinon date du jour.
     """
-    body = {"codeName": code_name, "num": article_number}
-    if date:
-        body["date"] = date
+    from datetime import date as date_cls
+
+    body = {
+        "codeName": code_name,
+        "num": article_number,
+        "date": date or date_cls.today().isoformat(),
+        "sctCid": None,
+        "cid": None,
+        "id": None,
+        "fromSuggest": False,
+    }
     return await _post("/consult/code", body)
