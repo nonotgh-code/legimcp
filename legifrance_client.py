@@ -13,6 +13,7 @@ disponible sur votre espace PISTE avant de modifier ce fichier.
 """
 
 import os
+import re
 import logging
 import httpx
 from typing import Optional
@@ -109,12 +110,66 @@ async def consult_article(article_id: str) -> dict:
     return await _post("/consult/getArticle", {"id": article_id})
 
 
+# Identifiant technique d'un article dans Légifrance (ex: LEGIARTI000006419282).
+_LEGIARTI_PATTERN = re.compile(r"^LEGIARTI\d+$")
+
+
+def _extract_first_article_id(search_response: dict) -> Optional[str]:
+    """Parcourt récursivement une réponse /search (fond CODE_DATE) et renvoie
+    le premier identifiant d'article LEGIARTI rencontré.
+
+    Le schéma JSON de /search varie selon les fonds et les versions de l'API :
+    l'identifiant de l'article peut se trouver à la racine, dans un tableau
+    'sections', 'articles', 'titles', etc. Plutôt que de coder en dur un chemin
+    fragile, on parcourt l'arbre JSON et on retient le premier 'id' qui a la
+    forme d'un LEGIARTI. C'est robuste aux évolutions de structure.
+    """
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if (
+                    key in ("id", "cid")
+                    and isinstance(value, str)
+                    and _LEGIARTI_PATTERN.match(value)
+                ):
+                    return value
+                found = walk(value)
+                if found:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found = walk(item)
+                if found:
+                    return found
+        return None
+
+    return walk(search_response)
+
+
 async def consult_code_article(
     code_name: str,
     article_number: str,
     date: Optional[str] = None,
 ) -> dict:
     """Récupère un article de code par son numéro.
+
+    Approche EN DEUX ÉTAPES, officiellement recommandée par Légifrance et
+    identique à celle utilisée par les clients tiers stables (pylegifrance,
+    LegalDataHunter) :
+        1. POST /search (fond CODE_DATE) pour retrouver l'identifiant technique
+           LEGIARTI de l'article, en filtrant sur le nom du code et le numéro
+           d'article à la date de vigueur voulue ;
+        2. POST /consult/getArticle avec cet identifiant pour récupérer le
+           texte intégral.
+
+    Cela remplace l'ancien appel direct à POST /consult/code, un endpoint
+    "legacy" qui renvoie une erreur 500 côté serveur PISTE (confirmé via le
+    Swagger PISTE, indépendamment de ce code).
+
+    La valeur de retour a exactement la même forme qu'un appel getArticle
+    (donc identique à consult_article) : format_legifrance_article dans
+    formatters.py la met en forme sans modification.
 
     Args:
         code_name: nom exact du code tel que référencé par Légifrance
@@ -124,13 +179,45 @@ async def consult_code_article(
     """
     from datetime import date as date_cls
 
-    body = {
-        "codeName": code_name,
-        "num": article_number,
-        "date": date or date_cls.today().isoformat(),
-        "sctCid": None,
-        "cid": None,
-        "id": None,
-        "fromSuggest": False,
+    version_date = date or date_cls.today().isoformat()
+
+    # ── Étape 1 : retrouver l'identifiant LEGIARTI de l'article ──────────────
+    search_body = {
+        "recherche": {
+            "champs": [
+                {
+                    "typeChamp": "NUM_ARTICLE",
+                    "criteres": [
+                        {
+                            "typeRecherche": "EXACTE",
+                            "valeur": article_number,
+                            "operateur": "ET",
+                        }
+                    ],
+                    "operateur": "ET",
+                }
+            ],
+            "filtres": [
+                {"facette": "NOM_CODE", "valeurs": [code_name]},
+                {"facette": "DATE_VERSION", "singleDate": version_date},
+            ],
+            "pageNumber": 1,
+            "pageSize": 10,
+            "operateur": "ET",
+            "sort": "PERTINENCE",
+            "typePagination": "ARTICLE",
+        },
+        "fond": "CODE_DATE",
     }
-    return await _post("/consult/code", body)
+    search_response = await _post("/search", search_body)
+
+    article_id = _extract_first_article_id(search_response)
+    if not article_id:
+        raise LegifranceAPIError(
+            f"Aucun article « {article_number} » trouvé dans « {code_name} » "
+            f"à la date {version_date}. Vérifiez le nom exact du code "
+            f"(tel qu'il apparaît sur Légifrance) et le numéro d'article."
+        )
+
+    # ── Étape 2 : récupérer le texte intégral de l'article ───────────────────
+    return await _post("/consult/getArticle", {"id": article_id})
