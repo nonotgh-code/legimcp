@@ -13,8 +13,11 @@ disponible sur votre espace PISTE avant de modifier ce fichier.
 """
 
 import os
+import logging
 import httpx
 from typing import Optional
+
+logger = logging.getLogger("legimcp")
 
 from piste_auth import get_access_token, PisteAuthError
 
@@ -43,9 +46,13 @@ async def _post(path: str, json_body: dict) -> dict:
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    logger.warning("DEBUG legimcp -> POST %s body=%s", url, json_body)
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             resp = await client.post(url, json=json_body, headers=headers)
+            logger.warning(
+                "DEBUG legimcp <- status=%s body=%s", resp.status_code, resp.text
+            )
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPStatusError as e:
